@@ -2,3 +2,4 @@
 security/serviceAccountKey.json
 __pycache__/
 *.pyc
+venv
