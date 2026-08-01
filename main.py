@@ -17,8 +17,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from firebase.nodos.admin_nodos import crear_admin, login_admin
+from firebase.nodos.clientes_nodos import crear_cliente, login_cliente
 from seguridad.jwt_handler import crear_token
-from seguridad.dependencias import obtener_admin_actual
+from seguridad.dependencias import obtener_admin_actual, obtener_cliente_actual
 
 app = FastAPI(title="Backend Core API")
 
@@ -47,6 +48,22 @@ class RegistroAdminSchema(BaseModel):
 
 class LoginSchema(BaseModel):
     correo: str
+    contraseña: str
+
+
+class RegistroClienteSchema(BaseModel):
+    cedula: str
+    nombres_completos: str
+    direccion: str
+    correo: str
+    telefono: str
+    usuario_creado: str
+    contraseña_creada: str
+    plan_seleccionado: str
+
+
+class LoginClienteSchema(BaseModel):
+    identificador: str  # correo o usuario_creado
     contraseña: str
 
 
@@ -105,6 +122,54 @@ def login(datos: LoginSchema):
     }
 
 
+# --- Endpoints públicos: clientes --------------------------------------------
+
+@app.post("/registro/cliente")
+def registrar_cliente(datos: RegistroClienteSchema):
+    """
+    Recibe los datos del formulario de ingreso de clientes desde Angular,
+    los valida (registro/validacion_campos.py) y crea el nodo en Firebase
+    (firebase/nodos/clientes_nodos.py) con la contraseña cifrada.
+    """
+    resultado = crear_cliente(datos.model_dump())
+
+    if not resultado["exito"]:
+        # 400 = error del cliente (datos inválidos o cédula/correo/usuario duplicado)
+        raise HTTPException(status_code=400, detail=resultado["errores"])
+
+    return {"mensaje": "Cliente registrado correctamente", "cedula": resultado["cedula"]}
+
+
+@app.post("/login/cliente")
+def login_cliente_endpoint(datos: LoginClienteSchema):
+    """
+    Valida credenciales (correo o usuario + contraseña) contra Firebase.
+    Si son correctas, genera y retorna un token JWT con rol "cliente"
+    que Angular debe guardar y enviar en futuras peticiones protegidas.
+    """
+    resultado = login_cliente(datos.identificador, datos.contraseña)
+
+    if not resultado["exito"]:
+        # 401 = no autorizado (credenciales inválidas)
+        raise HTTPException(status_code=401, detail=resultado["error"])
+
+    token = crear_token({
+        "cedula": resultado["cedula"],
+        "rol": resultado["rol"],
+        "nombres_completos": resultado["nombres_completos"],
+        "usuario_creado": resultado["usuario_creado"],
+        "plan_seleccionado": resultado["plan_seleccionado"],
+    })
+
+    return {
+        "mensaje": "Login exitoso",
+        "token": token,
+        "rol": resultado["rol"],
+        "nombres_completos": resultado["nombres_completos"],
+        "plan_seleccionado": resultado["plan_seleccionado"],
+    }
+
+
 # --- Endpoints protegidos (requieren token JWT válido con rol "admin") -------
 
 @app.get("/admin/dashboard")
@@ -120,4 +185,21 @@ def dashboard(admin_actual: dict = Depends(obtener_admin_actual)):
         "mensaje": f"Bienvenido {admin_actual['nombres_completos']}",
         "rol": admin_actual["rol"],
         "cedula": admin_actual["cedula"],
+    }
+
+
+@app.get("/clientes/dashboard")
+def dashboard_cliente(cliente_actual: dict = Depends(obtener_cliente_actual)):
+    """
+    Endpoint protegido: solo responde si el token es válido,
+    no ha expirado, y el rol dentro del token es "cliente".
+
+    FastAPI ejecuta obtener_cliente_actual() antes de entrar aquí;
+    si algo falla, ni siquiera llega a este código.
+    """
+    return {
+        "mensaje": f"Bienvenido {cliente_actual['nombres_completos']}",
+        "rol": cliente_actual["rol"],
+        "cedula": cliente_actual["cedula"],
+        "plan_seleccionado": cliente_actual.get("plan_seleccionado"),
     }
