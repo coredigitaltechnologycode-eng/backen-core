@@ -18,10 +18,10 @@ Clientes_Registrados/
 
 Flujo esperado:
     1. registro/validacion_campos.py valida los datos del formulario
-       (validar_formulario_cliente).
+    (validar_formulario_cliente).
     2. Si son válidos, este módulo cifra la contraseña y crea el nodo.
     3. Para login: se busca por correo o usuario, se verifica la
-       contraseña y se retorna la sesión del cliente.
+    contraseña y se retorna la sesión del cliente.
 """
 
 import bcrypt
