@@ -18,6 +18,7 @@ from pydantic import BaseModel
 
 from firebase.nodos.admin_nodos import crear_admin, login_admin
 from firebase.nodos.clientes_nodos import crear_cliente, login_cliente
+from firebase.nodos.vender_nodo import crear_vendedor, login_vendedor
 from seguridad.jwt_handler import crear_token
 from seguridad.dependencias import obtener_admin_actual, obtener_cliente_actual
 
@@ -64,6 +65,24 @@ class RegistroClienteSchema(BaseModel):
 
 class LoginClienteSchema(BaseModel):
     identificador: str  # correo o usuario_creado
+    contraseña: str
+
+
+class RegistroVendedorSchema(BaseModel):
+    # cedula_cliente NO va aquí: llega por la URL (path param), no por el body.
+    cedula: str
+    nombres_completos: str
+    fecha_ingreso: str        # dd/mm/aaaa
+    tipo_contrato: str        # tiempo_indefinido | plazo_fijo | temporal | practicas
+    fecha_nacimiento: str     # dd/mm/aaaa
+    salario: float
+    usuario_creado: str
+    contraseña_creada: str
+
+
+class LoginVendedorSchema(BaseModel):
+    # cedula_cliente NO va aquí: llega por la URL (path param), no por el body.
+    usuario_creado: str
     contraseña: str
 
 
@@ -170,8 +189,55 @@ def login_cliente_endpoint(datos: LoginClienteSchema):
     }
 
 
-# --- Endpoints protegidos (requieren token JWT válido con rol "admin") -------
+# --- Endpoints públicos: colaboradores / vendedores --------------------------
 
+@app.post("/clientes/{cedula_cliente}/colaboradores")
+def registrar_vendedor(cedula_cliente: str, datos: RegistroVendedorSchema):
+    """
+    Recibe los datos del formulario de ingreso de vendedor/colaborador desde
+    Angular, los valida (registro/validacion_campos.py) y crea el nodo
+    anidado dentro del cliente dueño en Firebase (firebase/nodos/vender_nodo.py)
+    con la contraseña cifrada.
+    """
+    resultado = crear_vendedor(cedula_cliente, datos.model_dump())
+
+    if not resultado["exito"]:
+        # 400 = error del cliente (datos inválidos, cliente inexistente o cédula/usuario duplicado)
+        raise HTTPException(status_code=400, detail=resultado["errores"])
+
+    return {"mensaje": "Colaborador registrado correctamente", "cedula": resultado["cedula"]}
+
+
+@app.post("/clientes/{cedula_cliente}/colaboradores/login")
+def login_vendedor_endpoint(cedula_cliente: str, datos: LoginVendedorSchema):
+    """
+    Valida credenciales (usuario + contraseña) del colaborador contra los
+    colaboradores anidados en el cliente indicado. Si son correctas, genera
+    y retorna un token JWT con rol "vendedor".
+    """
+    resultado = login_vendedor(cedula_cliente, datos.usuario_creado, datos.contraseña)
+
+    if not resultado["exito"]:
+        # 401 = no autorizado (credenciales inválidas)
+        raise HTTPException(status_code=401, detail=resultado["error"])
+
+    token = crear_token({
+        "cedula": resultado["cedula"],
+        "rol": resultado["rol"],
+        "nombres_completos": resultado["nombres_completos"],
+        "usuario_creado": resultado["usuario_creado"],
+        "cedula_cliente": cedula_cliente,
+    })
+
+    return {
+        "mensaje": "Login exitoso",
+        "token": token,
+        "rol": resultado["rol"],
+        "nombres_completos": resultado["nombres_completos"],
+    }
+
+
+# --- Endpoints protegidos (requieren token JWT válido con rol "admin") -------
 @app.get("/admin/dashboard")
 def dashboard(admin_actual: dict = Depends(obtener_admin_actual)):
     """
