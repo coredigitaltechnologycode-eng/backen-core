@@ -184,6 +184,7 @@ def login_cliente_endpoint(datos: LoginClienteSchema):
         "mensaje": "Login exitoso",
         "token": token,
         "rol": resultado["rol"],
+        "cedula": resultado["cedula"],     
         "nombres_completos": resultado["nombres_completos"],
         "plan_seleccionado": resultado["plan_seleccionado"],
     }
